@@ -77,10 +77,17 @@ which down-weight redundant near-identical sequences. It is **off by default** s
 that "95%" means 95% of the sequences in the file, which is what you want in a
 methods section.
 
-Turn it on as a sanity check: if a block survives weighting, it is real
-conservation; if it disappears, it was an artifact of over-represented near-duplicate
-entries. Databases like RefSeq are full of these for well-sampled viruses, and
-exact-duplicate removal does not catch them.
+Off by default, but **turn it on for anything pulled from GenBank.** If a block
+survives weighting it is real conservation; if it disappears, it was an artifact of
+over-represented near-duplicate entries, and exact-duplicate removal does not catch
+those.
+
+This is not a marginal correction. On 82 *unique* MERS-CoV spike sequences — every
+exact duplicate already stripped — weighting cuts the output from 1143 windows to 159,
+and the single window found for the M protein disappears entirely. Outbreak strains
+get sequenced hundreds of times, and that sampling bias manufactures apparent
+conservation. Treat the unweighted count as an upper bound. Full numbers in
+`PIPELINE_INTEGRATION.md` §10.2.
 
 ## Windows
 
@@ -176,9 +183,12 @@ are too strict for a whole genus: across all eight coronavirus genus-level group
 tested (S, E, M, N for *Alphacoronavirus* and *Betacoronavirus*), the defaults return
 zero windows, because the longest run of 95%-identical columns anywhere is 5.
 
+Within a species they work as intended: the same flags that return nothing across
+*Betacoronavirus* return 1143 spike windows on MERS-CoV.
+
 At genus level, drop `--min-identity` to around 0.70 or group the input more narrowly.
 `--columns-out` tells you which threshold is binding. `PIPELINE_INTEGRATION.md` §10.1
-has the full numbers.
+and §10.2 have the full numbers for both scales.
 
 ## Tests
 

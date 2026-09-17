@@ -293,7 +293,73 @@ genus, that is the region it selected.
 than 3 consecutive even at 60% identity. Short and divergent; do not expect candidates
 from it above species level.
 
-### 10.2 Note for the retrieval step
+### 10.2 Species level, and why you must use `--weighting henikoff`
+
+Same checks against MERS-CoV (taxid 1335626), GenBank rather than RefSeq, 250 entries
+fetched per protein, filtered on length and ambiguity, **exact duplicates removed**:
+
+| | unique seqs | columns | conserved cols | windows at defaults |
+|---|---|---|---|---|
+| S | 82 | 1470 | 1056 | 1143 |
+| E | 9 | 82 | 58 | 1 |
+| M | 26 | 339 | 75 | 1 |
+| N | 49 | 443 | 340 | 446 |
+
+The defaults behave as intended here — the same flags that return nothing across a
+genus return 1143 spike windows within a species. That is the scoping conclusion from
+§10.1 confirmed from the other direction.
+
+**The important result is what weighting does to those numbers:**
+
+```
+        weighting=none   weighting=henikoff
+S       1143 windows  ->  159 windows    (-86%)
+N        446 windows  ->  109 windows    (-76%)
+M          1 window   ->    0 windows    (gone entirely)
+E          1 window   ->    1 window     (unchanged)
+```
+
+All exact duplicates had already been removed — 168 of the 250 fetched spike entries.
+**That was not close to sufficient.** The 82 remaining *unique* sequences still carry
+enough near-duplicate structure to inflate the window count roughly sevenfold. M is
+the clearest case: its single conserved 10-mer disappears completely under weighting,
+so it was never conservation, just one strain sampled repeatedly with a few
+substitutions. E, with 9 sequences and no redundancy left, is identical under both
+settings and acts as the control.
+
+Sampling bias in GenBank is not random — outbreak strains are sequenced hundreds of
+times — so it manufactures apparent conservation in exactly the regions least likely
+to be broadly useful. **For any GenBank-derived set, run `--weighting henikoff`, and
+treat the unweighted count as an upper bound rather than a result.**
+
+The 159 surviving spike windows collapse to 11 regions, against
+`--reference sp|K9N5Q8.1|SPIKE_MERS1` (SwissProt canonical, strain HCoV-EMC/2012):
+
+| region | MERS-S | motif | annotation |
+|---|---|---|---|
+| S1 | 401–410 | `RLVFTNCNYN` | RBD core (367–588) |
+| S2 | 799–808 | `IQKVTVDCKQ` | S2, upstream of the S2′ site |
+| S3 | 899–908 | `TIADPGYMQG` | fusion peptide (888–910) |
+| S4 | 929–938 | `VAGYKVLPPL` | post-fusion-peptide |
+| S5 | 984–993 | `GITQQVLSEN` | HR1 start (984–1104) |
+| S6 | 997–1006 | `IANKFNQALG` | HR1 |
+| S7 | 1029–1038 | `NAQALSKLAS` | HR1 |
+| S8 | 1066–1075 | `QIDRLINGRL` | central helix |
+| S9 | 1078–1087 | `LNAFVAQQLV` | central helix |
+| S10 | 1276–1285 | `LNESYIDLKE` | HR2 (1246–1295) |
+| S11 | 1327–1336 | `CMGKLKCNRC` | cysteine-rich cytoplasmic tail |
+
+Eight of eleven fall in S2, the conserved fusion machinery; S1, which carries the
+variable antigenic surface, contributes one. That distribution is what a working
+conservation scan should produce.
+
+Note S8 against §10.1: the genus-level *Betacoronavirus* scan independently returned
+`AQIDRLINGR` at SARS-CoV-2 S 991–1000. These are the same central-helix site,
+recovered from different input at a different taxonomic scale, sharing `QIDRLI`
+exactly. Two independent paths to the same residues is a useful end-to-end check on
+scoring and on the reference-coordinate mapping.
+
+### 10.3 Note for the retrieval step
 
 Two NCBI E-utilities behaviours cost real time here, both upstream of this program but
 worth recording. `[Protein Name]` is not a valid search field — queries using it
