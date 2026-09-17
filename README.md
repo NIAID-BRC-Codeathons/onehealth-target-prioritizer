@@ -42,3 +42,13 @@ Team assignments are still being finalized. Participants can review their projec
 ## Working here
 
 This repository is the team's working space for the codeathon — code, notebooks, data pointers, and notes. Replace this README with the real thing once the charter is written. Team members get access through the [NIAID-BRC-Codeathons](https://github.com/NIAID-BRC-Codeathons) organization; accept the invitation if you have not already.
+
+## In this repo
+
+- [`conservation/`](conservation/) — standalone CLI tool that finds conserved
+  peptide-length windows in a protein multiple sequence alignment (input: an
+  existing MSA; this repo does not align sequences). See
+  [`conservation/README.md`](conservation/README.md) for usage and
+  [`conservation/PIPELINE_INTEGRATION.md`](conservation/PIPELINE_INTEGRATION.md)
+  for its input/output contract, if you're wiring it into the retrieval →
+  QC → alignment → conservation → ranking pipeline sketched above.
