@@ -221,19 +221,86 @@ dependence anywhere.
 **No bridging.** Runs must be strictly contiguous, so one variable column splits a
 stretch in two and each fragment is length-filtered independently. A single
 hypervariable position inside an otherwise conserved 30-mer costs the whole region.
-This follows the specification and is not a bug, but on real viral alignments it will
-fragment usable candidates. The fix, if needed, is a `--bridge N` option merging runs
-separated by at most N failing columns.
+This follows the specification and is not a bug, but on real viral alignments it does
+fragment usable candidates — see §10.1.
+
+The obvious fix is a `--bridge N` option merging runs separated by at most N failing
+columns. **Do not implement that as stated.** On the betacoronavirus spike alignment
+in §10.1, a simulated `--bridge 2` at `--min-identity 0.95` turns 0 windows into 196 —
+but the merged regions contain columns at 25–45% identity:
+
+```
+region(cols)   len   worst column identity inside
+ 1238-1263      26   0.450
+ 1286-1295      10   0.450
+ 1358-1384      27   0.250
+ 1389-1402      14   0.450
+```
+
+A window advertised as 95%-conserved that contains a 25% column is not a peptide
+candidate, and nothing downstream can tell the difference. If bridging is added,
+bridged columns need their own identity floor (a second, lower threshold) and the
+window row needs to report it.
 
 **`motif` is the consensus, not a real strain.** At ≥95% identity these are nearly
 always identical but can differ at up to 5% of positions. If you are ordering
 peptides and need the exact residues of a particular isolate, take them from that
 sequence using the `--reference` coordinates.
 
-**Untested on real data.** Every check so far has used synthetic alignments. The
-defaults are reasonable but unvalidated against real viral alignments, where
-redundancy and ragged ends behave differently. Use `--columns-out` to check the
-thresholds are landing sensibly before trusting the first real run.
+### 10.1 Behaviour on real data
+
+Checked 2026-09-17 against RefSeq structural proteins (S, E, M, N) for two
+coronavirus genera, length/ambiguity/duplicate filtered, aligned with MAFFT `--auto`.
+
+| group | seqs | columns | windows at defaults |
+|---|---|---|---|
+| *Alphacoronavirus* S / E / M / N | 31 / 29 / 28 / 28 | 1736 / 89 / 263 / 552 | 0 / 0 / 0 / 0 |
+| *Betacoronavirus* S / E / M / N | 20 / 14 / 19 / 18 | 1627 / 90 / 231 / 526 | 0 / 0 / 0 / 0 |
+
+**Zero windows at the defaults, in all eight groups.** This is correct behaviour, not
+a failure. Conserved columns do exist — 158 in *Alphacoronavirus* S, 182 in
+*Betacoronavirus* S — but they never form a run of 10. The longest contiguous run at
+95% identity is 5 columns. Genus-wide 95% identity across 10+ consecutive positions
+essentially does not occur.
+
+Longest contiguous conserved run / windows emitted, by identity threshold:
+
+```
+group           95%       90%       80%       70%       60%
+alphacov S      5/0       5/0       8/0      12/6      14/30
+alphacov E      1/0       1/0       1/0       2/0       3/0
+alphacov M      3/0       3/0       6/0       8/0      16/42
+alphacov N      3/0       5/0       6/0       6/0      12/6
+betacov  S      5/0       6/0      10/1      11/3      12/15
+betacov  E      1/0       1/0       1/0       3/0       3/0
+betacov  M      3/0       3/0       8/0       8/0      13/10
+betacov  N      3/0       7/0       7/0       7/0      12/6
+```
+
+**The defaults are scoped to within-species or within-subgenus comparisons.** If you
+are working at genus level, either relax `--min-identity` to 0.70 or below, or group
+the input more narrowly. Use `--columns-out` to see which of the two thresholds is
+binding before changing either.
+
+**It does recover real biology.** The one region found in *Betacoronavirus* S at
+`--min-identity 0.70` is alignment columns 1324–1334, consensus `AQIDRLINGR`. Against
+`--reference YP_009724390.1` that is SARS-CoV-2 spike residues 991–1000 — in context
+`ILSRLDKVEAE·VQIDRLITGR·LQSLQTYVTQQLIRA`, the HR1 / central helix of S2 and a
+well-characterised broadly-neutralising target. Out of 1627 columns spanning a whole
+genus, that is the region it selected.
+
+**E is not productive at this scale.** 4–5 conserved columns out of ~90, never more
+than 3 consecutive even at 60% identity. Short and divergent; do not expect candidates
+from it above species level.
+
+### 10.2 Note for the retrieval step
+
+Two NCBI E-utilities behaviours cost real time here, both upstream of this program but
+worth recording. `[Protein Name]` is not a valid search field — queries using it
+return zero hits silently rather than erroring. And a multi-word `[All Fields]` term
+is tokenised, so `membrane protein[All Fields]` matches `membrane AND protein` and
+pulled a 76 aa envelope protein into an M-protein set. Length bounds caught it, which
+is an argument for keeping per-protein length QC even when the query looks specific.
 
 ## 11. Upstream requirement: use a real aligner
 

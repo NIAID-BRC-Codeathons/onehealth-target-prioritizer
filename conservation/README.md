@@ -162,8 +162,23 @@ this will fragment otherwise-usable peptide candidates — one hypervariable pos
 inside an otherwise conserved 30-mer costs you the whole region.
 
 This follows the specification ("continuous stretches of conserved columns") and is
-not a bug, but if it turns out to be too strict the fix is a `--bridge N` option that
-merges runs separated by at most N failing columns.
+not a bug. The obvious fix is a `--bridge N` option merging runs separated by at most
+N failing columns, but on real data that turns out to be a bad trade: bridging a
+betacoronavirus spike alignment with `N=2` at 95% identity produces windows containing
+columns at 25–45% identity. A "95%-conserved" peptide with a 25% position in the
+middle is not a usable candidate. See `PIPELINE_INTEGRATION.md` §10 before building
+it.
+
+## Choosing thresholds
+
+The 95% / 10–15 aa defaults assume sequences from **one species or subgenus**. They
+are too strict for a whole genus: across all eight coronavirus genus-level groups
+tested (S, E, M, N for *Alphacoronavirus* and *Betacoronavirus*), the defaults return
+zero windows, because the longest run of 95%-identical columns anywhere is 5.
+
+At genus level, drop `--min-identity` to around 0.70 or group the input more narrowly.
+`--columns-out` tells you which threshold is binding. `PIPELINE_INTEGRATION.md` §10.1
+has the full numbers.
 
 ## Tests
 
