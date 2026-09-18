@@ -274,7 +274,8 @@ def search_cov_pos_ab(
         fieldnames = [
             "source_fasta",
             "sequence_id",
-            "peptide",
+            "fasta_sequence",
+            "matched_peptide",
             "peptide_length",
             "region",
             "residues",
@@ -319,7 +320,13 @@ def search_cov_pos_ab(
                     rows_out.append({
                         "source_fasta": fasta_file.name,
                         "sequence_id": sequence_id,
-                        "peptide": peptide,
+
+                        # Sequence extracted from the conserved-region FASTA
+                        "fasta_sequence": peptide,
+
+                        # Full peptide value from cov_pos_ab.tsv containing the FASTA sequence
+                        "matched_peptide": match.get("peptide", ""),
+
                         "peptide_length": len(peptide),
                         "region": header_fields.get("region", ""),
                         "residues": header_fields.get("residues", ""),
@@ -340,7 +347,11 @@ def search_cov_pos_ab(
                 rows_out.append({
                     "source_fasta": fasta_file.name,
                     "sequence_id": sequence_id,
-                    "peptide": peptide,
+
+                    # FASTA candidate was not found in cov_pos_ab.tsv
+                    "fasta_sequence": peptide,
+                    "matched_peptide": "",
+
                     "peptide_length": len(peptide),
                     "region": header_fields.get("region", ""),
                     "residues": header_fields.get("residues", ""),
