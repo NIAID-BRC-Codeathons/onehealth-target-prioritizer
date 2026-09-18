@@ -161,7 +161,7 @@ A valid installation should print a path to the executable rather than
 ### Internet access
 
 Internet access is required during the fetch stage because
-`viral_protein_pipeline(1).py` queries NCBI E-utilities.
+`viral_protein_pipeline.py` queries NCBI E-utilities.
 
 The retrieval code uses NCBI Protein ESearch, ESummary, and EFetch
 endpoints.
