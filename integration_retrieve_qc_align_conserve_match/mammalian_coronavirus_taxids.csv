@@ -1,0 +1,20 @@
+Virus Name,Taxonomy ID,Category
+Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2),2697049,Human-Infecting (Zoonotic)
+Severe acute respiratory syndrome-related coronavirus (SARS-CoV-1),694069,Human-Infecting (Zoonotic)
+Middle East respiratory syndrome-related coronavirus (MERS-CoV),1335626,Human-Infecting (Zoonotic)
+Human coronavirus OC43,31631,Human-Infecting (Common Cold)
+Human coronavirus 229E,11137,Human-Infecting (Common Cold)
+Human coronavirus NL63,277944,Human-Infecting (Common Cold)
+Human coronavirus HKU1,290028,Human-Infecting (Common Cold)
+Porcine epidemic diarrhea virus (PEDV),28295,Swine (Pig) Coronavirus
+Transmissible gastroenteritis virus (TGEV),11138,Swine (Pig) Coronavirus
+Swine acute diarrhea syndrome coronavirus (SADS-CoV),2169691,Swine (Pig) Coronavirus
+Porcine hemagglutinating encephalomyelitis virus (PHEV),11136,Swine (Pig) Coronavirus
+Murine coronavirus (MHV),11142,Rodent & Domestic Animal
+Bovine coronavirus (BCoV),11128,Rodent & Domestic Animal
+Feline coronavirus (FCoV),12637,Rodent & Domestic Animal
+Canine coronavirus (CCoV),11153,Rodent & Domestic Animal
+Bat coronavirus,1508220,Bat Reservoir
+Bat coronavirus RaTG13,2709072,Bat Reservoir
+Bat coronavirus HKU4,290025,Bat Reservoir
+Bat coronavirus HKU9,370002,Bat Reservoir
