@@ -11,6 +11,10 @@ per region.
 The tool does not align anything. Feed it an alignment from MAFFT, MUSCLE or
 similar.
 
+Full reference for every setting and every output field: **[`MANUAL.md`](MANUAL.md)**.
+Guarantees for neighbouring pipeline components, and results on real data:
+[`PIPELINE_INTEGRATION.md`](PIPELINE_INTEGRATION.md).
+
 ## Requirements
 
 Python 3.11+, NumPy, Biopython.
