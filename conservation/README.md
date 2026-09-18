@@ -30,6 +30,9 @@ pip install numpy biopython
 
 # stricter: make gaps count against a column, and relax identity to 90%
 ./conserved_regions.py aln.fasta --gap-votes --min-identity 90
+
+# what each individual sequence carries in each conserved stretch
+./conserved_regions.py aln.fasta --matrix-out regions.tsv --fasta-out regions.faa
 ```
 
 Input format is guessed from the extension (`.fasta` `.fa` `.faa` `.aln` `.sto`
@@ -137,6 +140,54 @@ One row per alignment column: `column`, `ref_pos` (with `--reference`), `consens
 `identity`, `occupancy`, `conserved`. Useful for plotting the profile or for
 debugging why a block did not survive.
 
+### Per-sequence matrix (`--matrix-out`)
+
+The two tables above are aggregates. `motif` is a consensus and need not match any one
+sequence — so if you are picking a strain to order a peptide from, it does not tell you
+what that strain actually has. This file does.
+
+One row per input sequence, three columns per conserved stretch, two header lines:
+
+```
+region   	5-18          	5-18    	5-18    	21-30     	21-30   	21-30
+field    	aligned       	residues	identity	aligned   	residues	identity
+consensus	ACDEFGHIKLMNPQ	NA      	NA      	RSTVWYACDE	NA      	NA
+sp_A     	ACDEFGHIKLMNPQ	4-17    	1.0000  	RSTVWYACDE	18-27   	1.0000
+sp_C     	ACDEFSHIKLMNPQ	3-16    	0.9286  	RSTVWYACDE	19-28   	1.0000
+sp_E     	ACDEFGHIKLMNPQ	4-17    	1.0000  	RST---ACDE	18-24   	1.0000
+sp_F     	ACDEFGHIKLMNPQ	5-18    	1.0000  	----------	NA      	NA
+```
+
+| | |
+|---|---|
+| `aligned` | the slice verbatim from the alignment, gaps included |
+| `residues` | the same span in that sequence's own ungapped numbering, or `NA` |
+| `identity` | fraction of this sequence's residues that match the consensus, or `NA` |
+
+Load it with `pandas.read_csv(path, sep="\t", header=[0, 1], index_col=0)`.
+
+`identity` follows the `--gap-votes` rule like everything else: by default `sp_E` scores
+`1.0000` because its seven residues all match, and under `--gap-votes` it scores
+`0.7000` because three positions are missing. The first says "no substitutions", the
+second says "don't order this one" — pick the one your downstream step needs.
+
+### Per-sequence FASTA (`--fasta-out`)
+
+The same subsequences, **gaps stripped**, grouped by stretch:
+
+```
+>sp_C_S1 region=5-18 residues=3-16 identity=0.9286
+ACDEFSHIKLMNPQ
+>sp_E_S2 region=21-30 residues=18-24 identity=1.0000
+RSTACDE
+```
+
+A sequence that is all gaps in a stretch gets no record; the skipped count goes to
+stderr. Because gaps are stripped, records within a stretch can differ in length —
+`sp_E_S2` is 7 aa from a 10-column stretch. That is what you want for ordering, and
+wrong for a sequence logo; use the matrix's `aligned` column for anything that needs
+column correspondence.
+
 ## Design decisions
 
 These are deliberate. Each is easy to change if it does not suit your data.
@@ -196,7 +247,8 @@ and §10.2 have the full numbers for both scales.
 python3 test_conserved_regions.py
 ```
 
-33 assertions with hand-computed expected values, covering tiling arithmetic, both
+55 assertions with hand-computed expected values, covering tiling arithmetic, both
 gap-voting modes, the occupancy guard, ambiguity handling, degenerate columns,
-threshold inclusivity, strict contiguity, and reference-coordinate mapping. Exits
-non-zero on failure.
+threshold inclusivity, strict contiguity, reference-coordinate mapping, per-sequence
+identity (including internal deletions under both gap-voting modes) and the layout of
+both per-sequence output files. Exits non-zero on failure.

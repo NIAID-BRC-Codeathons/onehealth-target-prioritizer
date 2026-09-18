@@ -18,12 +18,18 @@ Maximal runs of consecutive conserved columns are then tiled into every window
 of length --min-length .. --max-length that fits inside them, which is what you
 want when the windows are peptide candidates rather than domain annotations.
 
+The window table reports a consensus motif, which need not match any single
+sequence. --matrix-out and --fasta-out report what each individual sequence
+actually carries in each conserved stretch, which is what you need in order to
+pick a real strain to order a peptide from.
+
 Usage
 -----
     ./conserved_regions.py aln.fasta
     ./conserved_regions.py aln.fasta --min-identity 90 --gap-votes
     ./conserved_regions.py aln.fasta --reference NP_828851.1 \
         --weighting henikoff --columns-out profile.tsv
+    ./conserved_regions.py aln.fasta --matrix-out regions.tsv --fasta-out regions.faa
 """
 
 from __future__ import annotations
@@ -73,6 +79,7 @@ _FORMAT_BY_EXT = {
 class Alignment:
     ids: list[str]
     codes: np.ndarray  # (n_seq, n_col) int8
+    chars: np.ndarray  # (n_seq, n_col) uint8, the input symbols as written
 
     @property
     def n_seq(self) -> int:
@@ -108,7 +115,7 @@ def load_alignment(path: str, fmt: str | None = None) -> Alignment:
 
     raw = np.array([bytearray(str(r.seq), "ascii") for r in records], dtype=np.uint8)
     raw[raw > 127] = ord("X")
-    return Alignment(ids=[r.id for r in records], codes=_CODE_OF[raw])
+    return Alignment(ids=[r.id for r in records], codes=_CODE_OF[raw], chars=raw)
 
 
 # --------------------------------------------------------------------------
@@ -230,9 +237,12 @@ def tile(start: int, end: int, min_length: int, max_length: int) -> Iterator[tup
 
 
 def reference_map(codes_row: np.ndarray) -> np.ndarray:
-    """Column index -> 1-based ungapped position, 0 where the reference is gapped."""
+    """Column index -> 1-based ungapped position, 0 where the sequence is gapped.
+
+    Accepts a single row or a whole (n_seq, n_col) alignment.
+    """
     non_gap = codes_row != GAP_CODE
-    return np.where(non_gap, np.cumsum(non_gap), 0)
+    return np.where(non_gap, np.cumsum(non_gap, axis=-1), 0)
 
 
 def reference_span(ref_pos: np.ndarray, start: int, end: int) -> tuple[str, str]:
@@ -240,6 +250,29 @@ def reference_span(ref_pos: np.ndarray, start: int, end: int) -> tuple[str, str]
     if present.size == 0:
         return "NA", "NA"
     return str(int(present[0])), str(int(present[-1]))
+
+
+def span_label(ref_pos: np.ndarray, start: int, end: int) -> str:
+    """reference_span as one cell, "18-27" or "NA"."""
+    first, last = reference_span(ref_pos, start, end)
+    return "NA" if first == "NA" else f"{first}-{last}"
+
+
+def subsequence_identity(row_codes: np.ndarray, top_code: np.ndarray,
+                         has_aa: np.ndarray, gap_votes: bool) -> float | None:
+    """How much of one sequence's stretch matches the consensus. None if all gaps.
+
+    The denominator follows --gap-votes, so this number is on the same footing
+    as the column identities: by default a sequence with an internal deletion is
+    scored over the residues it does have, and with --gap-votes the missing
+    positions count against it.
+    """
+    non_gap = row_codes != GAP_CODE
+    # An ambiguity code is never equal to top_code (0-19), so it scores as a
+    # mismatch rather than silently matching whatever the consensus is.
+    matches = int(((row_codes == top_code) & has_aa & non_gap).sum())
+    denom = row_codes.size if gap_votes else int(non_gap.sum())
+    return matches / denom if denom else None
 
 
 # --------------------------------------------------------------------------
@@ -268,6 +301,63 @@ def write_windows(out: TextIO, runs, scores: ColumnScores, min_length: int,
                     scores.motif(w_start, w_end)]
             print("\t".join(row), file=out)
     return n
+
+
+def write_matrix(out: TextIO, aln: Alignment, runs, scores: ColumnScores,
+                 res_pos: np.ndarray, gap_votes: bool) -> None:
+    """One row per input sequence, three columns per conserved stretch.
+
+    Two header lines: the stretch's alignment-column span, then which of the
+    three fields the column holds. Read it with pandas as header=[0, 1].
+    """
+    labels = [f"{s + 1}-{e + 1}" for s, e in runs]
+    fields = ["aligned", "residues", "identity"]
+    print("\t".join(["region"] + [lab for lab in labels for _ in fields]), file=out)
+    print("\t".join(["field"] + fields * len(runs)), file=out)
+
+    # The identity column is only meaningful next to what it was measured
+    # against, so the consensus ships in the file.
+    row = ["consensus"]
+    for s, e in runs:
+        row += [scores.motif(s, e), "NA", "NA"]
+    print("\t".join(row), file=out)
+
+    for i, name in enumerate(aln.ids):
+        row = [name]
+        for s, e in runs:
+            ident = subsequence_identity(aln.codes[i, s : e + 1],
+                                         scores.top_code[s : e + 1],
+                                         scores.has_aa[s : e + 1], gap_votes)
+            row += [aln.chars[i, s : e + 1].tobytes().decode("ascii"),
+                    span_label(res_pos[i], s, e),
+                    "NA" if ident is None else f"{ident:.4f}"]
+        print("\t".join(row), file=out)
+
+
+def write_fasta(out: TextIO, aln: Alignment, runs, scores: ColumnScores,
+                res_pos: np.ndarray, gap_votes: bool) -> tuple[int, int]:
+    """Each sequence's stretch, gaps stripped, grouped by stretch.
+
+    Gaps are stripped because these are peptides to order, so a sequence with an
+    internal deletion is shorter here than the stretch it came from. Returns
+    (records written, sequences skipped for being all gaps).
+    """
+    written = skipped = 0
+    for s_num, (s, e) in enumerate(runs, 1):
+        for i, name in enumerate(aln.ids):
+            row = aln.codes[i, s : e + 1]
+            keep = row != GAP_CODE
+            if not keep.any():
+                skipped += 1
+                continue
+            ident = subsequence_identity(row, scores.top_code[s : e + 1],
+                                         scores.has_aa[s : e + 1], gap_votes)
+            print(f">{name}_S{s_num} region={s + 1}-{e + 1} "
+                  f"residues={span_label(res_pos[i], s, e)} "
+                  f"identity={ident:.4f}", file=out)
+            print(aln.chars[i, s : e + 1][keep].tobytes().decode("ascii"), file=out)
+            written += 1
+    return written, skipped
 
 
 def write_columns(out: TextIO, scores: ColumnScores, ref_pos: np.ndarray | None) -> None:
@@ -331,6 +421,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="write the window table here (default: stdout)")
     g.add_argument("--columns-out", metavar="PATH",
                    help="also write the full per-column profile here")
+    g.add_argument("--matrix-out", metavar="PATH",
+                   help="also write a per-sequence x per-stretch table here "
+                        "(aligned slice, own residue numbering, identity)")
+    g.add_argument("--fasta-out", metavar="PATH",
+                   help="also write every sequence's ungapped subsequence for "
+                        "each stretch here, grouped by stretch")
     return p
 
 
@@ -388,6 +484,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.columns_out:
         with open(args.columns_out, "w") as fh:
             write_columns(fh, scores, ref_pos)
+
+    if args.matrix_out or args.fasta_out:
+        res_pos = reference_map(aln.codes)  # every row, not just the reference
+        if args.matrix_out:
+            with open(args.matrix_out, "w") as fh:
+                write_matrix(fh, aln, runs, scores, res_pos, args.gap_votes)
+        if args.fasta_out:
+            with open(args.fasta_out, "w") as fh:
+                n_rec, n_skip = write_fasta(fh, aln, runs, scores, res_pos,
+                                            args.gap_votes)
+            note = f" ({n_skip} skipped, all gaps in that stretch)" if n_skip else ""
+            print(f"[*] {n_rec} subsequence records across {len(runs)} stretches{note}",
+                  file=sys.stderr)
 
     return 0
 

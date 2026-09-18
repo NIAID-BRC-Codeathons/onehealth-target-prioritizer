@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import importlib.util, numpy as np, sys
+import importlib.util, io, numpy as np, sys
 spec = importlib.util.spec_from_file_location("cr", "conserved_regions.py")
 cr = importlib.util.module_from_spec(spec); sys.modules["cr"] = cr; spec.loader.exec_module(cr)
 
@@ -76,6 +76,71 @@ check("span skips leading gaps", cr.reference_span(rp, 0, 3), ("1","2"))
 check("span cols 0-4 = residues 1-3", cr.reference_span(rp, 0, 4), ("1","3"))
 check("span across internal gap", cr.reference_span(rp, 4, 6), ("3","4"))
 check("all-gap span", cr.reference_span(rp, 0, 1), ("NA","NA"))
+
+# The worked example from the design review: 6 sequences, 2 stretches at 80%,
+# built so that every interesting case appears exactly once.
+MOCK = ["MKT-ACDEFGHIKLMNPQ--RSTVWYACDE",   # A  clean
+        "MKTLACDEFGHIKLMNPQ--RSTVWYACDE",   # B  clean, different offset
+        "M--QACDEFSHIKLMNPQGGRSTVWYACDE",   # C  substitution at col 10
+        "MKTWACDEFGHIKLMNPQ--RSTVWYASDE",   # D  substitution at col 28
+        "MKT-ACDEFGHIKLMNPQ--RST---ACDE",   # E  internal deletion
+        "MKTRACDEFGHIKLMNPQ------------"]   # F  truncated
+mc = codes_from(MOCK)
+ms = score(MOCK, min_identity=0.80)
+mruns = cr.maximal_runs(ms.conserved, 10)
+mrp = cr.reference_map(mc)
+
+print("\n[9] per-sequence identity within a stretch")
+check("two stretches at 80%", mruns, [(4, 17), (20, 29)])
+
+def ident(i, s, e, gap_votes=False):
+    v = cr.subsequence_identity(mc[i, s:e+1], ms.top_code[s:e+1],
+                                ms.has_aa[s:e+1], gap_votes)
+    return None if v is None else round(v, 4)
+
+check("exact match", ident(0, 4, 17), 1.0)
+check("one substitution -> 13/14", ident(2, 4, 17), 0.9286)
+check("deletion, gaps ignored -> 7/7", ident(4, 20, 29), 1.0)
+check("deletion, gaps vote    -> 7/10", ident(4, 20, 29, True), 0.7)
+check("all gaps -> None", ident(5, 20, 29), None)
+
+ac = codes_from(["AAAA", "AAAA", "AAXA"])
+asc = score(["AAAA", "AAAA", "AAXA"], min_identity=0.6)
+check("ambiguity code scores as a mismatch, never as the consensus",
+      round(cr.subsequence_identity(ac[2], asc.top_code, asc.has_aa, False), 4), 0.75)
+
+check("span_label as one cell", cr.span_label(mrp[0], 20, 29), "18-27")
+check("span_label when absent", cr.span_label(mrp[5], 20, 29), "NA")
+check("reference_map vectorises over rows",
+      list(map(int, mrp[2])), list(map(int, cr.reference_map(mc[2]))))
+
+print("\n[10] matrix and fasta writers")
+maln = cr.Alignment(
+    ids=[f"sp_{c}" for c in "ABCDEF"], codes=mc,
+    chars=np.array([bytearray(s, "ascii") for s in MOCK], dtype=np.uint8))
+
+buf = io.StringIO()
+cr.write_matrix(buf, maln, mruns, ms, mrp, False)
+rows = [r.split("\t") for r in buf.getvalue().rstrip("\n").split("\n")]
+check("header 1 repeats each span 3x",
+      rows[0], ["region", "5-18", "5-18", "5-18", "21-30", "21-30", "21-30"])
+check("header 2 names the fields", rows[1][1:4], ["aligned", "residues", "identity"])
+check("consensus row is present", rows[2][:2], ["consensus", "ACDEFGHIKLMNPQ"])
+check("2 headers + consensus + 6 sequences", len(rows), 9)
+check("aligned cell keeps alignment gaps", rows[7][4], "RST---ACDE")
+check("residue cell uses the sequence's own numbering", rows[7][5], "18-24")
+check("all-gap stretch -> NA, not a fake span", rows[8][5:7], ["NA", "NA"])
+
+buf = io.StringIO()
+n_rec, n_skip = cr.write_fasta(buf, maln, mruns, ms, mrp, False)
+fa = buf.getvalue().rstrip("\n").split("\n")
+check("records written", n_rec, 11)
+check("all-gap sequence skipped", n_skip, 1)
+check("2 lines per record", len(fa), 22)
+check("grouped by stretch", fa[0].split()[0], ">sp_A_S1")
+check("header carries region, residues and identity",
+      fa[4], ">sp_C_S1 region=5-18 residues=3-16 identity=0.9286")
+check("gaps stripped, so 7 aa not 10", fa[-1], "RSTACDE")
 
 print("\n" + ("ALL PASS" if ok else "FAILURES PRESENT"))
 sys.exit(0 if ok else 1)

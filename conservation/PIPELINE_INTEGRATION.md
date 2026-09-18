@@ -103,6 +103,60 @@ One row per alignment column: `column`, `ref_pos` (only with `--reference`),
 view — use it when a region you expected did not appear, to see whether the cause was
 low identity or low occupancy.
 
+### Per-sequence matrix (`--matrix-out`)
+
+The window table's `motif` is a **consensus** and need not equal any one sequence.
+This file says what each input sequence actually carries. One row per sequence, three
+columns per conserved stretch, and **two header lines** — read it with
+`pandas.read_csv(path, sep="\t", header=[0, 1], index_col=0)`.
+
+```
+region   	5-18          	5-18    	5-18    	21-30     	21-30   	21-30
+field    	aligned       	residues	identity	aligned   	residues	identity
+consensus	ACDEFGHIKLMNPQ	NA      	NA      	RSTVWYACDE	NA      	NA
+sp_A     	ACDEFGHIKLMNPQ	4-17    	1.0000  	RSTVWYACDE	18-27   	1.0000
+sp_C     	ACDEFSHIKLMNPQ	3-16    	0.9286  	RSTVWYACDE	19-28   	1.0000
+sp_E     	ACDEFGHIKLMNPQ	4-17    	1.0000  	RST---ACDE	18-24   	1.0000
+sp_F     	ACDEFGHIKLMNPQ	5-18    	1.0000  	----------	NA      	NA
+```
+
+| field | notes |
+|---|---|
+| header line 1 | the stretch's extent in alignment columns, repeated three times |
+| header line 2 | which of the three values the column holds |
+| `consensus` row | what `identity` is measured against; `residues`/`identity` are `NA` |
+| `aligned` | that sequence's slice **verbatim from the alignment**, gaps included, always the width of the stretch |
+| `residues` | the same span in that sequence's **own ungapped numbering**, `first-last`, or `NA` if it is all gaps there |
+| `identity` | fraction of this sequence's residues in the stretch that match the consensus, 4 dp, or `NA` |
+
+Stretch labels and ordering match the `stretch`/`stretch_start`/`stretch_end` fields
+of the window table, so the files join.
+
+`identity` uses the same denominator rule as `--gap-votes`: by default a sequence with
+an internal deletion is scored over the residues it does have (`sp_E` above reads
+`1.0000` — no substitutions), and with `--gap-votes` the missing positions count
+against it (`0.7000`). An ambiguity code never matches the consensus.
+
+### Per-sequence FASTA (`--fasta-out`)
+
+The same subsequences as sequence records, **gaps stripped**, grouped by stretch:
+
+```
+>sp_C_S1 region=5-18 residues=3-16 identity=0.9286
+ACDEFSHIKLMNPQ
+>sp_E_S2 region=21-30 residues=18-24 identity=1.0000
+RSTACDE
+```
+
+The first token is a unique ID (`<input id>_S<n>`); the rest are `key=value`. A
+sequence that is all gaps in a stretch gets **no record** — the count of skipped
+sequences goes to stderr, so a short file is not a silent failure.
+
+**Records within a stretch are not all the same length.** Stripping gaps is right for
+peptides you intend to order, but it means `sp_E_S2` above is 7 aa from a 10-column
+stretch. If you need column correspondence — a sequence logo, say — use the `aligned`
+column of the matrix instead, not this file.
+
 ## 6. The conservation rule
 
 Precise statement, so you can describe it in a methods section.
@@ -359,7 +413,46 @@ recovered from different input at a different taxonomic scale, sharing `QIDRLI`
 exactly. Two independent paths to the same residues is a useful end-to-end check on
 scoring and on the reference-coordinate mapping.
 
-### 10.3 Note for the retrieval step
+### 10.3 What per-sequence output exposes that the aggregate tables hide
+
+Re-running the Henikoff-weighted MERS-CoV spike set (82 sequences, 11 stretches, 889
+subsequence records) with `--matrix-out` surfaced three things invisible in the
+window table. None is a tool bug; all three are things to check before ordering
+anything.
+
+**1. 15 of 889 records do not match their own stretch's consensus.** The window table
+reports `RLVFTNCNYN` for the RBD stretch at columns 439–448. `YEV46216.1` actually
+carries `RLIFTNCNYN` there (`identity=0.9000`) — verified against its raw ungapped
+sequence at residues 401–410. A peptide synthesised from the consensus does not cover
+that strain. Most stretches are clean, but `S7` (columns 1097–1116) has five
+imperfect records and `S1`, `S2`, `S3`, `S6` have one or two each.
+
+**2. Four PDB entries in the set are construct fragments, not spike proteins.** In
+`S11` (columns 1414–1425, cysteine-rich cytoplasmic tail) the consensus is
+`CMGKLKCNRCCD`, but:
+
+```
+pdb|9DKK|A   GLNDI          identity=0.0000
+pdb|7YMX|C   DNSAD          identity=0.2000
+pdb|22FY|B   LEVL           identity=0.2500
+pdb|5W9I|J   LEVL           identity=0.2500
+```
+
+A record at 0.0000 identity inside a stretch that passed a 95% identity filter is the
+signature of a structure-derived construct — expression tags and linkers aligned into
+a region the construct does not actually span. Filter `pdb|` accessions at retrieval,
+or accept that they contribute junk to the ragged ends.
+
+**3. Henikoff weight is heavily concentrated, and that is worth looking at.** Four of
+82 sequences carry **39% of the total vote**; `USL83011.1` alone carries 17.3%. We
+checked whether this was an artifact of low-quality records — it is not: those four
+are full-length and carry no ambiguity codes, so the weighting is behaving exactly as
+designed, rewarding genuine divergence. But it does mean the "95%" in a weighted run
+is a consensus of a handful of divergent sequences plus a large near-identical block,
+and §10.2's recommendation to always weight GenBank sets should be read alongside
+this. The `identity` column is how you see it; the window table cannot show it.
+
+### 10.4 Note for the retrieval step
 
 Two NCBI E-utilities behaviours cost real time here, both upstream of this program but
 worth recording. `[Protein Name]` is not a valid search field — queries using it
@@ -390,10 +483,11 @@ a first-pass implementation is likely to get wrong.
 ## 12. Tests
 
 ```sh
-python3 test_conserved_regions.py     # 33 assertions, exits non-zero on failure
+python3 test_conserved_regions.py     # 55 assertions, exits non-zero on failure
 ```
 
 Covers tiling arithmetic, both gap-voting modes, the occupancy guard, ambiguity
-handling, degenerate columns, threshold inclusivity, strict contiguity, and
-reference-coordinate mapping. Worth running in CI — the assertions have hand-computed
+handling, degenerate columns, threshold inclusivity, strict contiguity,
+reference-coordinate mapping, per-sequence identity (including internal deletions
+under both gap-voting modes) and the layout of both per-sequence output files. Worth running in CI — the assertions have hand-computed
 expected values, so a failure means real behaviour changed.
