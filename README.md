@@ -45,10 +45,12 @@ This repository is the team's working space for the codeathon — code, notebook
 
 ## In this repo
 
+- [`integration_retrieve_qc_align_conserve_match/`](integration_retrieve_qc_align_conserve_match/) — end-to-end viral protein analysis workflow that connects NCBI sequence retrieval, JSON-to-FASTA conversion, MAFFT multiple-sequence alignment, pairwise identity analysis, conservation analysis, conserved peptide-region extraction, and peptide matching against `cov_pos_ab.tsv`. The integrated runner accepts a CSV containing NCBI `Taxonomy ID` values, creates run-specific outputs under `pipeline_runs/`, and coordinates the component scripts from retrieval through peptide matching. See [`integration_retrieve_qc_align_conserve_match/README.md`](integration_retrieve_qc_align_conserve_match/README.md) for dependencies, setup, command-line options, workflow stages, output files, and troubleshooting.
+
 - [`conservation/`](conservation/) — standalone CLI tool that finds conserved
   peptide-length windows in a protein multiple sequence alignment (input: an
-  existing MSA; this repo does not align sequences). See
+  existing MSA; this repo does not align sequences). Use this component when
+  you already have an MSA and only need conserved-region analysis. See
   [`conservation/README.md`](conservation/README.md) for usage and
   [`conservation/PIPELINE_INTEGRATION.md`](conservation/PIPELINE_INTEGRATION.md)
-  for its input/output contract, if you're wiring it into the retrieval →
-  QC → alignment → conservation → ranking pipeline sketched above.
+  for its input/output contract.
